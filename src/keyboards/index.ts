@@ -77,8 +77,7 @@ export function dayKeyboard(lang: Language): InlineKeyboard {
 // If day is "today", only show hours after current hour
 export function timeKeyboard(lang: Language, day: string = "today"): InlineKeyboard {
   const keyboard = new InlineKeyboard();
-  const currentHour = new Date().getHours();
-  console.log(currentHour)
+  const currentHour = new Date().getHours() + 5;
 
   // Determine starting hour based on selected day
   const startHour = day === "today" ? currentHour + 1 : 0;
