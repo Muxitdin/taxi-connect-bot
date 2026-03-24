@@ -78,6 +78,7 @@ export function dayKeyboard(lang: Language): InlineKeyboard {
 export function timeKeyboard(lang: Language, day: string = "today"): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   const currentHour = new Date().getHours();
+  console.log(currentHour)
 
   // Determine starting hour based on selected day
   const startHour = day === "today" ? currentHour + 1 : 0;
