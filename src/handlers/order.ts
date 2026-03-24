@@ -1,10 +1,11 @@
 import { Bot } from "grammy";
 import { MyContext } from "../types";
 import { User, Order } from "../models";
-import { t, getCityName } from "../locales";
+import { t, getCityName, getDayName } from "../locales";
 import {
   fromCitiesKeyboard,
   toCitiesKeyboard,
+  dayKeyboard,
   timeKeyboard,
   passengersKeyboard,
   phoneSelectionKeyboard,
@@ -52,11 +53,11 @@ export async function handleToCity(ctx: MyContext) {
   const city = callbackData.replace("to_", "");
   ctx.session.orderData = ctx.session.orderData || {};
   ctx.session.orderData.to = city;
-  ctx.session.step = "select_time";
+  ctx.session.step = "select_day";
 
   await ctx.answerCallbackQuery();
-  await ctx.editMessageText(t(lang, "selectTime"), {
-    reply_markup: timeKeyboard(lang),
+  await ctx.editMessageText(t(lang, "selectDay"), {
+    reply_markup: dayKeyboard(lang),
   });
 }
 
@@ -68,6 +69,34 @@ export async function handleBackToFrom(ctx: MyContext) {
   await ctx.answerCallbackQuery();
   await ctx.editMessageText(t(lang, "selectFrom"), {
     reply_markup: fromCitiesKeyboard(lang),
+  });
+}
+
+export async function handleDay(ctx: MyContext) {
+  const lang = ctx.session.language || "uz";
+  const callbackData = ctx.callbackQuery?.data;
+
+  if (!callbackData) return;
+
+  const day = callbackData.replace("day_", "");
+  ctx.session.orderData = ctx.session.orderData || {};
+  ctx.session.orderData.day = day;
+  ctx.session.step = "select_time";
+
+  await ctx.answerCallbackQuery();
+  await ctx.editMessageText(t(lang, "selectTime"), {
+    reply_markup: timeKeyboard(lang, day),
+  });
+}
+
+export async function handleBackToDay(ctx: MyContext) {
+  const lang = ctx.session.language || "uz";
+
+  ctx.session.step = "select_day";
+
+  await ctx.answerCallbackQuery();
+  await ctx.editMessageText(t(lang, "selectDay"), {
+    reply_markup: dayKeyboard(lang),
   });
 }
 
@@ -124,12 +153,13 @@ export async function handlePassengers(ctx: MyContext) {
 
 export async function handleBackToTime(ctx: MyContext) {
   const lang = ctx.session.language || "uz";
+  const day = ctx.session.orderData?.day || "today";
 
   ctx.session.step = "select_time";
 
   await ctx.answerCallbackQuery();
   await ctx.editMessageText(t(lang, "selectTime"), {
-    reply_markup: timeKeyboard(lang),
+    reply_markup: timeKeyboard(lang, day),
   });
 }
 
@@ -244,6 +274,7 @@ ${t(lang, "orderSummary")}
 
 ${t(lang, "from")}: ${getCityName(lang, orderData.from || "")}
 ${t(lang, "to")}: ${getCityName(lang, orderData.to || "")}
+${t(lang, "day")}: ${getDayName(lang, orderData.day || "today")}
 ${t(lang, "time")}: ${orderData.time}
 ${t(lang, "passengers")}: ${orderData.passengers}
 ${t(lang, "phone")}: ${orderData.phone}
@@ -276,6 +307,7 @@ export async function handleConfirmOrder(
     passengerPhone: orderData.phone,
     from: orderData.from,
     to: orderData.to,
+    day: orderData.day,
     time: orderData.time,
     passengers: orderData.passengers,
     comment: orderData.comment,
@@ -290,6 +322,7 @@ export async function handleConfirmOrder(
 
 ${t("uz", "from")} / ${t("ru", "from")}: ${getCityName("uz", orderData.from || "")} / ${getCityName("ru", orderData.from || "")}
 ${t("uz", "to")} / ${t("ru", "to")}: ${getCityName("uz", orderData.to || "")} / ${getCityName("ru", orderData.to || "")}
+${t("uz", "day")} / ${t("ru", "day")}: ${getDayName("uz", orderData.day || "today")} / ${getDayName("ru", orderData.day || "today")}
 ${t("uz", "time")} / ${t("ru", "time")}: ${orderData.time}
 ${t("uz", "passengers")} / ${t("ru", "passengers")}: ${orderData.passengers}
 ${orderData.comment ? `${t("uz", "comment")} / ${t("ru", "comment")}: ${orderData.comment}` : ""}

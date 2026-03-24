@@ -29,3 +29,12 @@ export function getStatusText(lang: Language, status: string): string {
   };
   return t(lang, statusMap[status] || "statusPending");
 }
+
+export function getDayName(lang: Language, day: string): string {
+  const dayMap: Record<string, LocaleKeys> = {
+    today: "today",
+    tomorrow: "tomorrow",
+    after_tomorrow: "dayAfterTomorrow",
+  };
+  return t(lang, dayMap[day] || "today");
+}

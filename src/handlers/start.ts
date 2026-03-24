@@ -1,8 +1,9 @@
 import { Bot } from "grammy";
 import { MyContext, Language } from "../types";
-import { User, Order } from "../models";
-import { t, getCityName } from "../locales";
+import { User, Order, Driver } from "../models";
+import { t, getCityName, getDayName } from "../locales";
 import { languageKeyboard, phoneKeyboard, mainMenuKeyboard, declineOrderKeyboard, acceptOrderKeyboard } from "../keyboards";
+import { getDepartureDate, hasTimeConflict, isDriverBlocked } from "../utils";
 
 export async function handleStart(
   ctx: MyContext,
@@ -85,10 +86,143 @@ async function handleAcceptOrderFromDeepLink(
     return;
   }
 
-  // Update order status
+  // Get driver's language for messages
+  const driverUser = await User.findOne({ telegramId: driverId });
+  const driverLang = driverUser?.language || "uz";
+
+  // Get all accepted orders for this driver
+  const driverOrders = await Order.find({
+    driverId: driverId,
+    status: "accepted",
+  });
+
+  // Calculate new order's departure date
+  const newOrderDeparture = getDepartureDate(order.day, order.time);
+
+  // CHECK 1: Is driver currently on an active trip?
+  for (const existingOrder of driverOrders) {
+    const existingDeparture = getDepartureDate(existingOrder.day, existingOrder.time);
+    if (isDriverBlocked(existingDeparture, 6)) {
+      const tripEnd = new Date(existingDeparture);
+      tripEnd.setHours(tripEnd.getHours() + 6);
+      const unblockTime = tripEnd.toLocaleTimeString("ru-RU", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+      const blockMessage = `
+⛔ ${t(driverLang, "driverBlocked")}
+
+📛 ${t(driverLang, "driverOnTrip")}
+🕐 ${t(driverLang, "unblockTime")}: ${unblockTime}
+      `.trim();
+
+      await ctx.reply(blockMessage);
+      await ctx.reply(t(driverLang, "mainMenu"), {
+        reply_markup: mainMenuKeyboard(driverLang),
+      });
+      return;
+    }
+  }
+
+  // CHECK 2: Daily order limit (8 orders per 24 hours)
+  // Get or create driver record for daily limit tracking
+  let driverRecord = await Driver.findOne({ telegramId: driverId });
+  if (!driverRecord) {
+    driverRecord = new Driver({
+      telegramId: driverId,
+      totalOrdersToday: 0,
+      lastOrderDate: new Date(),
+    });
+    await driverRecord.save();
+  }
+
+  // Reset daily counter if 24 hours have passed
+  const now = new Date();
+  const hoursSinceLastOrder = (now.getTime() - driverRecord.lastOrderDate.getTime()) / (1000 * 60 * 60);
+  if (hoursSinceLastOrder >= 24) {
+    driverRecord.totalOrdersToday = 0;
+  }
+
+  if (driverRecord.totalOrdersToday >= 8) {
+    await ctx.reply(t(driverLang, "cannotAcceptDailyLimit"));
+    await ctx.reply(t(driverLang, "mainMenu"), {
+      reply_markup: mainMenuKeyboard(driverLang),
+    });
+    return;
+  }
+
+  // CHECK 3: 4 passengers limit per trip (same route + day + time)
+  const sameRouteOrders = driverOrders.filter(
+    (o) => o.from === order.from && o.to === order.to && o.day === order.day && o.time === order.time
+  );
+  const totalPassengersOnRoute = sameRouteOrders.reduce((sum, o) => sum + o.passengers, 0);
+
+  if (totalPassengersOnRoute + order.passengers > 4) {
+    const remainingSeats = 4 - totalPassengersOnRoute;
+    const tripLimitMessage = `
+⛔ ${t(driverLang, "tripPassengerLimit")}
+
+📛 ${t(driverLang, "routeFull")}
+📊 ${t(driverLang, "availableSeats")}: ${remainingSeats}
+    `.trim();
+
+    await ctx.reply(tripLimitMessage);
+    await ctx.reply(t(driverLang, "mainMenu"), {
+      reply_markup: mainMenuKeyboard(driverLang),
+    });
+    return;
+  }
+
+  // CHECK 4: 6-hour rule - no conflict with existing orders (6h before and 6h after)
+  for (const existingOrder of driverOrders) {
+    const existingDeparture = getDepartureDate(existingOrder.day, existingOrder.time);
+
+    if (hasTimeConflict(existingDeparture, newOrderDeparture, 6)) {
+      // Calculate blocked window
+      const windowStart = new Date(existingDeparture);
+      windowStart.setHours(windowStart.getHours() - 6);
+      const windowEnd = new Date(existingDeparture);
+      windowEnd.setHours(windowEnd.getHours() + 6);
+
+      const blockedFrom = windowStart.toLocaleTimeString("ru-RU", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      const blockedUntil = windowEnd.toLocaleTimeString("ru-RU", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      const existingTime = existingDeparture.toLocaleTimeString("ru-RU", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+      const conflictMessage = `
+⛔ ${t(driverLang, "timeConflict")}
+
+📛 ${t(driverLang, "conflictWithOrder")} #${existingOrder.orderId}
+🚗 ${t(driverLang, "existingOrderTime")}: ${existingTime}
+🚫 ${t(driverLang, "blockedWindow")}: ${blockedFrom} - ${blockedUntil}
+      `.trim();
+
+      await ctx.reply(conflictMessage);
+      await ctx.reply(t(driverLang, "mainMenu"), {
+        reply_markup: mainMenuKeyboard(driverLang),
+      });
+      return;
+    }
+  }
+
+  // All checks passed - accept the order
   order.status = "accepted";
   order.driverId = driverId;
   await order.save();
+
+  // Update driver statistics
+  driverRecord.totalOrdersToday += 1;
+  driverRecord.lastOrderDate = new Date();
+  await driverRecord.save();
 
   // Remove the accept button from group message
   try {
@@ -98,6 +232,7 @@ async function handleAcceptOrderFromDeepLink(
 
 ${t("uz", "from")} / ${t("ru", "from")}: ${getCityName("uz", order.from)} / ${getCityName("ru", order.from)}
 ${t("uz", "to")} / ${t("ru", "to")}: ${getCityName("uz", order.to)} / ${getCityName("ru", order.to)}
+${t("uz", "day")} / ${t("ru", "day")}: ${getDayName("uz", order.day)} / ${getDayName("ru", order.day)}
 ${t("uz", "time")} / ${t("ru", "time")}: ${order.time}
 ${t("uz", "passengers")} / ${t("ru", "passengers")}: ${order.passengers}
 ${order.comment ? `${t("uz", "comment")} / ${t("ru", "comment")}: ${order.comment}` : ""}
@@ -111,16 +246,22 @@ ${order.comment ? `${t("uz", "comment")} / ${t("ru", "comment")}: ${order.commen
     console.error("Error updating group message:", error);
   }
 
-  // Get or determine driver's language
-  let driverLang: Language = "uz";
-  const driver = await User.findOne({ telegramId: driverId });
-  if (driver) {
-    driverLang = driver.language;
-    ctx.session.language = driver.language;
+  // Update session language
+  if (driverUser) {
+    ctx.session.language = driverUser.language;
   }
 
   // Send confirmation
   await ctx.reply(t(driverLang, "orderAcceptedDriver"));
+
+  // Get passenger info for username display
+  const passenger = await User.findOne({ telegramId: order.passengerId });
+  const passengerLang = passenger?.language || "uz";
+
+  // Format username display with link
+  const usernameDisplay = passenger?.username
+    ? `@${passenger.username}`
+    : t(driverLang, "noUsername");
 
   // Send order details to driver
   const orderDetails = `
@@ -128,11 +269,13 @@ ${order.comment ? `${t("uz", "comment")} / ${t("ru", "comment")}: ${order.commen
 
 ${t(driverLang, "from")}: ${getCityName(driverLang, order.from)}
 ${t(driverLang, "to")}: ${getCityName(driverLang, order.to)}
+${t(driverLang, "day")}: ${getDayName(driverLang, order.day)}
 ${t(driverLang, "time")}: ${order.time}
 ${t(driverLang, "passengers")}: ${order.passengers}
 ${order.comment ? `${t(driverLang, "comment")}: ${order.comment}` : ""}
 
 📞 ${t(driverLang, "passengerPhone")}: ${order.passengerPhone}
+👤 ${t(driverLang, "passengerTelegram")}: ${usernameDisplay}
   `.trim();
 
   await ctx.reply(orderDetails, {
@@ -141,11 +284,30 @@ ${order.comment ? `${t(driverLang, "comment")}: ${order.comment}` : ""}
 
   await ctx.reply(t(driverLang, "contactPassenger"));
 
+  // Show driver their current limits status
+  const tripEnd = new Date(newOrderDeparture);
+  tripEnd.setHours(tripEnd.getHours() + 6);
+  const blockedUntil = tripEnd.toLocaleTimeString("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const departureTime = newOrderDeparture.toLocaleTimeString("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  const statusMessage = `
+📊 ${t(driverLang, "driverStatus")}
+
+🚗 ${t(driverLang, "tripStartsAt")}: ${departureTime}
+🕐 ${t(driverLang, "blockedUntilTrip")}: ${blockedUntil}
+📋 ${t(driverLang, "dailyOrderLimit")}: ${driverRecord.totalOrdersToday}/8
+  `.trim();
+
+  await ctx.reply(statusMessage);
+
   // Notify passenger that order was accepted
   try {
-    const passenger = await User.findOne({ telegramId: order.passengerId });
-    const passengerLang = passenger?.language || "uz";
-
     await bot.api.sendMessage(order.passengerId, t(passengerLang, "orderAccepted"));
   } catch (error) {
     console.error("Error notifying passenger:", error);

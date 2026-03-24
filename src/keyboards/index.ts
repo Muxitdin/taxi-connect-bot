@@ -61,21 +61,46 @@ export function toCitiesKeyboard(lang: Language, fromCity: string): InlineKeyboa
   return keyboard;
 }
 
-// Time slots keyboard (00:00 - 23:00)
-export function timeKeyboard(lang: Language): InlineKeyboard {
-  const keyboard = new InlineKeyboard();
+// Day selection keyboard (today, tomorrow, day after tomorrow)
+export function dayKeyboard(lang: Language): InlineKeyboard {
+  return new InlineKeyboard()
+    .text(t(lang, "today"), "day_today")
+    .row()
+    .text(t(lang, "tomorrow"), "day_tomorrow")
+    .row()
+    .text(t(lang, "dayAfterTomorrow"), "day_after_tomorrow")
+    .row()
+    .text(t(lang, "back"), "back_to_to");
+}
 
-  for (let hour = 0; hour < 24; hour++) {
+// Time slots keyboard (00:00 - 23:00)
+// If day is "today", only show hours after current hour
+export function timeKeyboard(lang: Language, day: string = "today"): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  const currentHour = new Date().getHours();
+
+  // Determine starting hour based on selected day
+  const startHour = day === "today" ? currentHour + 1 : 0;
+
+  let buttonCount = 0;
+  for (let hour = startHour; hour < 24; hour++) {
     const timeStr = `${hour.toString().padStart(2, "0")}:00`;
     keyboard.text(timeStr, `time_${timeStr}`);
+    buttonCount++;
 
     // 4 buttons per row
-    if ((hour + 1) % 4 === 0) {
+    if (buttonCount % 4 === 0) {
       keyboard.row();
     }
   }
 
-  keyboard.row().text(t(lang, "back"), "back_to_to");
+  // If no time slots available for today, show message
+  if (buttonCount === 0) {
+    keyboard.text(t(lang, "noTimeSlots"), "no_time_slots");
+    keyboard.row();
+  }
+
+  keyboard.row().text(t(lang, "back"), "back_to_day");
   return keyboard;
 }
 

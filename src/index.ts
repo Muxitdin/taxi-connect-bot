@@ -16,6 +16,8 @@ import {
   handleFromCity,
   handleToCity,
   handleBackToFrom,
+  handleDay,
+  handleBackToDay,
   handleTime,
   handleBackToTo,
   handlePassengers,
@@ -59,6 +61,18 @@ let botUsername = "";
 // Add session middleware
 bot.use(createSessionMiddleware());
 
+// Ignore all messages and commands from drivers group
+bot.use(async (ctx, next) => {
+  const chatId = ctx.chat?.id?.toString();
+
+  // Skip processing if message is from drivers group
+  if (chatId === DRIVERS_GROUP_ID) {
+    return;
+  }
+
+  await next();
+});
+
 // Command handlers - /start with deep link support
 bot.command("start", (ctx) => handleStart(ctx, bot, DRIVERS_GROUP_ID, botUsername));
 
@@ -69,8 +83,11 @@ bot.callbackQuery(/^lang_(uz|ru)$/, handleLanguageSelection);
 bot.callbackQuery(/^from_/, handleFromCity);
 bot.callbackQuery(/^to_/, handleToCity);
 bot.callbackQuery("back_to_from", handleBackToFrom);
-bot.callbackQuery(/^time_/, handleTime);
+bot.callbackQuery(/^day_/, handleDay);
 bot.callbackQuery("back_to_to", handleBackToTo);
+bot.callbackQuery(/^time_/, handleTime);
+bot.callbackQuery("no_time_slots", handleBackToDay); // Redirect to day selection if no time slots
+bot.callbackQuery("back_to_day", handleBackToDay);
 bot.callbackQuery(/^passengers_/, handlePassengers);
 bot.callbackQuery("back_to_time", handleBackToTime);
 bot.callbackQuery("use_my_phone", handleUseMyPhone);

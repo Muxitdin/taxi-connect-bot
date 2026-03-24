@@ -11,6 +11,7 @@ const OrderSchema = new Schema<IOrderDocument>(
     driverId: { type: Number },
     from: { type: String, required: true },
     to: { type: String, required: true },
+    day: { type: String, required: true },
     time: { type: String, required: true },
     passengers: { type: Number, required: true },
     comment: { type: String },

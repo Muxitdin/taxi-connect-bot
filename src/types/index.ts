@@ -10,6 +10,7 @@ export interface SessionData {
   orderData?: {
     from?: string;
     to?: string;
+    day?: string;
     time?: string;
     passengers?: number;
     phone?: string;
@@ -37,6 +38,7 @@ export interface IOrder {
   driverId?: number;
   from: string;
   to: string;
+  day: string;
   time: string;
   passengers: number;
   comment?: string;
